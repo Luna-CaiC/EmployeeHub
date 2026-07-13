@@ -54,6 +54,10 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/auth/profile").hasAnyRole("ADMIN", "EMPLOYEE")
+                        .requestMatchers(HttpMethod.GET, "/api/departments", "/api/departments/**").hasAnyRole("ADMIN", "EMPLOYEE")
+                        .requestMatchers(HttpMethod.POST, "/api/departments").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/departments/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/departments/**").hasRole("ADMIN")
                         .anyRequest().hasRole("ADMIN")
                 )
                 .authenticationProvider(authenticationProvider)
