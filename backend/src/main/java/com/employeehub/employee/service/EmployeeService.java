@@ -2,13 +2,23 @@ package com.employeehub.employee.service;
 
 import com.employeehub.department.entity.Department;
 import com.employeehub.department.repository.DepartmentRepository;
+import com.employeehub.employee.dto.EmployeePageResponse;
 import com.employeehub.employee.dto.EmployeeRequest;
 import com.employeehub.employee.dto.EmployeeResponse;
 import com.employeehub.employee.entity.Employee;
+import com.employeehub.employee.entity.EmployeeStatus;
 import com.employeehub.employee.repository.EmployeeRepository;
 import com.employeehub.exception.DuplicateResourceException;
 import com.employeehub.exception.ResourceNotFoundException;
-import java.util.List;
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
+import java.util.Locale;
+import java.util.Map;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -16,6 +26,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class EmployeeService {
+
+    private static final int MAX_PAGE_SIZE = 50;
+    private static final Map<String, String> SORT_FIELDS = Map.of(
+            "employeeCode", "employeeCode",
+            "firstName", "firstName",
+            "lastName", "lastName",
+            "hireDate", "hireDate",
+            "department", "department.name"
+    );
 
     private final EmployeeRepository employeeRepository;
     private final DepartmentRepository departmentRepository;
@@ -26,11 +45,92 @@ public class EmployeeService {
     }
 
     @Transactional(readOnly = true)
-    public List<EmployeeResponse> getAllEmployees() {
-        return employeeRepository.findAll()
-                .stream()
-                .map(this::toResponse)
-                .toList();
+    public EmployeePageResponse getEmployees(
+            String keyword,
+            String department,
+            EmployeeStatus status,
+            int page,
+            int size,
+            String sort,
+            String direction
+    ) {
+        Pageable pageable = buildPageable(page, size, sort, direction);
+        Page<Employee> employees = employeeRepository.findAll(
+                buildSpecification(keyword, department, status),
+                pageable
+        );
+
+        return new EmployeePageResponse(
+                employees.getContent()
+                        .stream()
+                        .map(this::toResponse)
+                        .toList(),
+                employees.getNumber(),
+                employees.getSize(),
+                employees.getTotalElements(),
+                employees.getTotalPages()
+        );
+    }
+
+    private Specification<Employee> buildSpecification(
+            String keyword,
+            String department,
+            EmployeeStatus status
+    ) {
+        Specification<Employee> specification = Specification.where(null);
+
+        String normalizedKeyword = normalizeOptionalText(keyword);
+        if (normalizedKeyword != null) {
+            specification = specification.and((root, query, criteriaBuilder) -> {
+                String pattern = "%" + normalizedKeyword.toLowerCase(Locale.ROOT) + "%";
+                return criteriaBuilder.or(
+                        criteriaBuilder.like(criteriaBuilder.lower(root.get("employeeCode")), pattern),
+                        criteriaBuilder.like(criteriaBuilder.lower(root.get("firstName")), pattern),
+                        criteriaBuilder.like(criteriaBuilder.lower(root.get("lastName")), pattern),
+                        criteriaBuilder.like(
+                                criteriaBuilder.lower(
+                                        criteriaBuilder.concat(
+                                                criteriaBuilder.concat(root.<String>get("firstName"), " "),
+                                                root.<String>get("lastName")
+                                        )
+                                ),
+                                pattern
+                        ),
+                        criteriaBuilder.like(criteriaBuilder.lower(root.get("email")), pattern)
+                );
+            });
+        }
+
+        String normalizedDepartment = normalizeOptionalText(department);
+        if (normalizedDepartment != null) {
+            specification = specification.and((root, query, criteriaBuilder) -> {
+                Join<Object, Object> departmentJoin = root.join("department", JoinType.INNER);
+                return criteriaBuilder.equal(
+                        criteriaBuilder.lower(departmentJoin.get("name")),
+                        normalizedDepartment.toLowerCase(Locale.ROOT)
+                );
+            });
+        }
+
+        if (status != null) {
+            specification = specification.and((root, query, criteriaBuilder) ->
+                    criteriaBuilder.equal(root.get("status"), status)
+            );
+        }
+
+        return specification;
+    }
+
+    private Pageable buildPageable(int page, int size, String sort, String direction) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        String normalizedSort = sort == null ? "employeeCode" : sort;
+        String sortProperty = SORT_FIELDS.getOrDefault(normalizedSort, SORT_FIELDS.get("employeeCode"));
+        Sort.Direction sortDirection = "desc".equalsIgnoreCase(direction)
+                ? Sort.Direction.DESC
+                : Sort.Direction.ASC;
+
+        return PageRequest.of(safePage, safeSize, Sort.by(sortDirection, sortProperty));
     }
 
     @Transactional(readOnly = true)
