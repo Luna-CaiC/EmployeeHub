@@ -7,6 +7,10 @@ public record UserProfileResponse(
         String username,
         String role,
         boolean enabled,
+        String name,
+        String email,
+        String phone,
+        String department,
         LocalDateTime createdAt
 ) {
 }
