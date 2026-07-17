@@ -1,0 +1,22 @@
+# Build the Spring Boot application with the Maven Wrapper.
+FROM eclipse-temurin:21-jdk AS build
+
+WORKDIR /app
+
+COPY mvnw .
+COPY .mvn .mvn
+COPY pom.xml .
+COPY src src
+
+RUN chmod +x ./mvnw && ./mvnw clean package -DskipTests
+
+# Run only the packaged application on a smaller JRE image.
+FROM eclipse-temurin:21-jre
+
+WORKDIR /app
+
+COPY --from=build /app/target/*.jar app.jar
+
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-jar", "app.jar"]
